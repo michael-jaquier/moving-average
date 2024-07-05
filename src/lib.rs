@@ -34,82 +34,8 @@
 //! assert_eq!(moving_average, 15);
 //! ```
 
+use core::panic;
 use std::ops::{AddAssign, Deref, SubAssign};
-
-macro_rules! non_float_types {
-    ($($ty:ty),*) => {
-        $(
-            impl std::cmp::PartialEq for Moving<$ty> {
-            fn eq(&self, other: &Self) -> bool {
-                self.current == other.current
-            }
-
-        }
-
-        impl std::cmp::PartialOrd for Moving<$ty> {
-            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-            self.current.partial_cmp(&other.current)
-            }
-        }
-
-        )*
-    };
-}
-
-macro_rules! non_float_typesu {
-    ($($ty:ty),*) => {
-        $(
-            impl std::cmp::PartialEq<$ty> for Moving<$ty> {
-                fn eq(&self, other: &$ty) -> bool {
-                    self.current == *other
-            }
-        }
-
-            impl std::cmp::PartialOrd<$ty> for Moving<$ty> {
-                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
-                    self.current.partial_cmp(other)
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! float_types {
-    ($($ty:ty),*) => {
-        $(
-            impl std::cmp::PartialEq for Moving<$ty> {
-                fn eq(&self, other: &Self) -> bool {
-                        (self.current - other.current).abs() < <$ty>::EPSILON
-                    }
-            }
-
-            impl PartialOrd for Moving<$ty> {
-                fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-                    self.current.partial_cmp(&other.current)
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! float_typesu {
-    ($($ty:ty),*) => {
-        $(
-            impl std::cmp::PartialEq<$ty> for Moving<$ty> {
-                fn eq(&self, other: &$ty) -> bool {
-                        (self.current - *other).abs() < <$ty>::EPSILON
-                    }
-            }
-
-            impl std::cmp::PartialOrd<$ty> for Moving<$ty> {
-                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
-                    self.current.partial_cmp(other)
-                }
-            }
-
-        )*
-    };
-}
 
 macro_rules! from_size {
     ($($ty:ty),*) => {
@@ -117,6 +43,12 @@ macro_rules! from_size {
             impl FromUsize for $ty {
                 fn from_usize(value: usize) -> Self {
                     value as Self
+                }
+            }
+
+            impl ToFloat64 for $ty {
+                fn to_f64(self) -> f64 {
+                    self as f64
                 }
             }
         )*
@@ -143,77 +75,157 @@ macro_rules! assign_types {
     };
 }
 
-non_float_types!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
-non_float_typesu!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
+macro_rules! partials {
+    ($($ty:ty),*) => {
+        $(
+            impl PartialEq<$ty> for Moving<$ty> {
+                fn eq(&self, other: &$ty) -> bool {
+                    self.mean == *other as f64
+                }
+            }
+
+            impl PartialOrd<$ty> for Moving<$ty> {
+                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
+                    self.mean.partial_cmp(&(*other as f64))
+                }
+            }
+
+            impl PartialEq<Moving<$ty>> for $ty {
+                fn eq(&self, other: &Moving<$ty>) -> bool {
+                    *self as f64 == other.mean
+                }
+            }
+
+            impl PartialOrd<Moving<$ty>> for $ty {
+                fn partial_cmp(&self, other: &Moving<$ty>) -> Option<std::cmp::Ordering> {
+                    (*self as f64).partial_cmp(&other.mean)
+                }
+            }
+
+        )*
+
+    };
+}
+
+macro_rules! partial_non {
+    ($($ty:ty), *) => {
+        $(
+        impl PartialEq<f32> for Moving<$ty> {
+            fn eq(&self, other: &f32) -> bool {
+                self.mean == *other as f64
+            }
+        }
+
+        impl PartialEq<f64> for Moving<$ty> {
+            fn eq(&self, other: &f64) -> bool {
+                self.mean == *other
+            }
+        }
+
+    )*
+
+    };
+}
+
+macro_rules! signed {
+    ($($ty:ty), *) => {
+        $(
+        impl Sign for $ty {
+            fn is_unsigned() -> bool {
+                false
+            }
+        }
+        )*
+    };
+}
+macro_rules! unsigned {
+    ($($ty:ty), *) => {
+    $(
+        impl Sign for $ty {
+            fn is_unsigned() -> bool {
+                true
+            }
+        }
+    )*
+    };
+}
+
 from_size!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
 assign_types!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
-float_types!(f32, f64);
-float_typesu!(f32, f64);
+partials!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
+partial_non!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
+signed!(i8, i16, i32, i64, i128, f32, f64);
+unsigned!(usize, u8, u16, u32, u64, u128);
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct Moving<T> {
-    current: T,
+    current: f64,
     count: usize,
+    mean: f64,
+    phantom: std::marker::PhantomData<T>,
 }
 
 pub trait FromUsize {
     fn from_usize(value: usize) -> Self;
 }
 
+pub trait ToFloat64 {
+    fn to_f64(self) -> f64;
+}
+
+pub trait Sign {
+    fn is_unsigned() -> bool;
+}
+
 impl<T> Moving<T>
 where
-    T: Default
-        + Copy
-        + std::ops::Div<Output = T>
-        + std::ops::Add<Output = T>
-        + std::ops::Sub<Output = T>
-        + std::ops::Mul<Output = T>
-        + std::cmp::PartialEq
-        + FromUsize,
+    T: FromUsize + ToFloat64 + Sign,
 {
     pub fn new() -> Self {
         Self {
-            current: T::default(),
+            current: 0.0,
             count: 0,
+            mean: 0.0,
+            phantom: std::marker::PhantomData,
         }
     }
 
     pub fn add(&mut self, value: T) {
-        self.current =
-            (self.current * T::from_usize(self.count) + value) / T::from_usize(self.count + 1);
+        let value = T::to_f64(value);
+        self.current += value;
         self.count += 1;
+        self.calculate_mean()
     }
 
     pub fn sub(&mut self, value: T) {
-        if self.count > 1 {
-            self.current =
-                (self.current * T::from_usize(self.count) - value) / T::from_usize(self.count - 1);
+        let value = T::to_f64(value);
+        if T::is_unsigned() {
+            // Prevent current from going negative for unsigned types
+            if self.current >= value {
+                self.current -= value;
+            } else {
+                panic!("Cannot subtract a larger value from a smaller value for unsigned types");
+            }
         } else {
-            self.current = T::default();
+            // Allow current to go negative for signed types and floats
+            self.current -= value;
         }
-        if self.count > 0 {
-            self.count -= 1;
-        }
-    }
-}
 
-impl AddAssign for Moving<usize> {
-    fn add_assign(&mut self, other: Self) {
-        self.add(other.current);
-    }
-}
+        self.count += 1;
 
-impl SubAssign for Moving<usize> {
-    fn sub_assign(&mut self, other: Self) {
-        self.sub(other.current);
+        self.calculate_mean();
+    }
+
+    pub(crate) fn calculate_mean(&mut self) {
+        self.mean = self.current / self.count as f64;
     }
 }
 
 impl<T> Deref for Moving<T> {
-    type Target = T;
+    type Target = f64;
 
     fn deref(&self) -> &Self::Target {
-        &self.current
+        &self.mean
     }
 }
 
@@ -233,10 +245,10 @@ mod tests {
     #[test]
     fn sub_moving_average() {
         let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.add(10);
+        moving_average.add(20);
         moving_average.add(20);
         moving_average.sub(10);
-        assert_eq!(moving_average, 20);
+        assert_eq!(moving_average, 10);
     }
 
     #[test]
@@ -250,32 +262,37 @@ mod tests {
     #[test]
     fn float_moving_average_sub() {
         let mut moving_average: Moving<f32> = Moving::new();
-        moving_average.add(10.0);
+        moving_average.add(20.0);
         moving_average.add(20.0);
         moving_average.sub(10.0);
-        assert_eq!(moving_average, 20.0);
+        assert_eq!(moving_average, 10.0);
     }
 
     #[test]
+    #[should_panic(
+        expected = "Cannot subtract a larger value from a smaller value for unsigned types"
+    )]
     fn first_operation_sub() {
         let mut moving_average: Moving<usize> = Moving::new();
         moving_average.sub(10);
-        assert_eq!(moving_average, 0);
     }
 
     #[test]
     fn first_operation_sub_float() {
         let mut moving_average: Moving<f32> = Moving::new();
         moving_average.sub(10.0);
-        assert_eq!(moving_average, 0.0);
+        assert_eq!(moving_average, -10.0);
     }
 
     #[test]
+    #[should_panic(
+        expected = "Cannot subtract a larger value from a smaller value for unsigned types"
+    )]
     fn first_operation_sub_then_add() {
         let mut moving_average: Moving<usize> = Moving::new();
         moving_average.sub(10);
         moving_average.add(10);
-        assert_eq!(moving_average, 10);
+        assert_eq!(moving_average, 5);
     }
 
     #[test]
@@ -289,19 +306,19 @@ mod tests {
     #[test]
     fn assign_sub() {
         let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.add(10);
+        moving_average.add(20);
         moving_average.add(20);
         moving_average -= 10;
-        assert_eq!(moving_average, 20);
+        assert_eq!(moving_average, 10);
     }
 
     #[test]
     fn assign_sub_float() {
         let mut moving_average: Moving<f32> = Moving::new();
-        moving_average.add(10.0);
+        moving_average.add(20.0);
         moving_average.add(20.0);
         moving_average -= 10.0;
-        assert_eq!(moving_average, 20.0);
+        assert_eq!(moving_average, 10.0);
     }
 
     #[test]
@@ -341,5 +358,14 @@ mod tests {
         moving_average.add(10.0);
         moving_average.add(20.0);
         assert!(moving_average < f32::MAX)
+    }
+
+    #[test]
+    fn many_operations() {
+        let mut moving_average: Moving<_> = Moving::new();
+        for i in 0..1000 {
+            moving_average.add(i);
+        }
+        assert_eq!(moving_average, 999.0 / 2.0);
     }
 }
