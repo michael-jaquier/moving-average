@@ -34,8 +34,7 @@
 //! assert_eq!(moving_average, 15);
 //! ```
 
-use core::panic;
-use std::ops::{AddAssign, Deref, SubAssign};
+use std::ops::{AddAssign, Deref};
 
 macro_rules! from_size {
     ($($ty:ty),*) => {
@@ -64,11 +63,6 @@ macro_rules! assign_types {
                 }
             }
 
-            impl SubAssign<$ty> for Moving<$ty> {
-                fn sub_assign(&mut self, other: $ty) {
-                    self.sub(other);
-                }
-            }
         )*
 
 
@@ -159,7 +153,6 @@ unsigned!(usize, u8, u16, u32, u64, u128);
 
 #[derive(Debug, Default)]
 pub struct Moving<T> {
-    current: f64,
     count: usize,
     mean: f64,
     phantom: std::marker::PhantomData<T>,
@@ -183,7 +176,6 @@ where
 {
     pub fn new() -> Self {
         Self {
-            current: 0.0,
             count: 0,
             mean: 0.0,
             phantom: std::marker::PhantomData,
@@ -192,32 +184,8 @@ where
 
     pub fn add(&mut self, value: T) {
         let value = T::to_f64(value);
-        self.current += value;
         self.count += 1;
-        self.calculate_mean()
-    }
-
-    pub fn sub(&mut self, value: T) {
-        let value = T::to_f64(value);
-        if T::is_unsigned() {
-            // Prevent current from going negative for unsigned types
-            if self.current >= value {
-                self.current -= value;
-            } else {
-                panic!("Cannot subtract a larger value from a smaller value for unsigned types");
-            }
-        } else {
-            // Allow current to go negative for signed types and floats
-            self.current -= value;
-        }
-
-        self.count += 1;
-
-        self.calculate_mean();
-    }
-
-    pub(crate) fn calculate_mean(&mut self) {
-        self.mean = self.current / self.count as f64;
+        self.mean += (value - self.mean) / self.count as f64;
     }
 }
 
@@ -226,6 +194,12 @@ impl<T> Deref for Moving<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.mean
+    }
+}
+
+impl<T> std::fmt::Display for Moving<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.mean)
     }
 }
 
@@ -243,15 +217,6 @@ mod tests {
     }
 
     #[test]
-    fn sub_moving_average() {
-        let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.add(20);
-        moving_average.add(20);
-        moving_average.sub(10);
-        assert_eq!(moving_average, 10);
-    }
-
-    #[test]
     fn float_moving_average() {
         let mut moving_average: Moving<f32> = Moving::new();
         moving_average.add(10.0);
@@ -260,65 +225,11 @@ mod tests {
     }
 
     #[test]
-    fn float_moving_average_sub() {
-        let mut moving_average: Moving<f32> = Moving::new();
-        moving_average.add(20.0);
-        moving_average.add(20.0);
-        moving_average.sub(10.0);
-        assert_eq!(moving_average, 10.0);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Cannot subtract a larger value from a smaller value for unsigned types"
-    )]
-    fn first_operation_sub() {
-        let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.sub(10);
-    }
-
-    #[test]
-    fn first_operation_sub_float() {
-        let mut moving_average: Moving<f32> = Moving::new();
-        moving_average.sub(10.0);
-        assert_eq!(moving_average, -10.0);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Cannot subtract a larger value from a smaller value for unsigned types"
-    )]
-    fn first_operation_sub_then_add() {
-        let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.sub(10);
-        moving_average.add(10);
-        assert_eq!(moving_average, 5);
-    }
-
-    #[test]
     fn assign_add() {
         let mut moving_average: Moving<usize> = Moving::new();
         moving_average.add(10);
         moving_average += 20;
         assert_eq!(moving_average, 15);
-    }
-
-    #[test]
-    fn assign_sub() {
-        let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.add(20);
-        moving_average.add(20);
-        moving_average -= 10;
-        assert_eq!(moving_average, 10);
-    }
-
-    #[test]
-    fn assign_sub_float() {
-        let mut moving_average: Moving<f32> = Moving::new();
-        moving_average.add(20.0);
-        moving_average.add(20.0);
-        moving_average -= 10.0;
-        assert_eq!(moving_average, 10.0);
     }
 
     #[test]
