@@ -1,0 +1,15 @@
+[package]
+name = "moving-average"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Michael Jaquier <michael.jaquier@nexthink.com>"]
+description = "A simple moving average library"
+repository = "https://github.com/michael-jaquier/moving-average"
+readme = "README.md"
+keywords = ["moving-average", "average", "statistics", "mathematics"]
+categories = ["algorithms", "mathematics"]
+documentation = "https://docs.rs/moving-average"
+
+
+[dependencies]
