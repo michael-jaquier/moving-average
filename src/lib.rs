@@ -111,8 +111,21 @@ macro_rules! float_typesu {
     };
 }
 
+macro_rules! from_size {
+    ($($ty:ty),*) => {
+        $(
+            impl FromUsize for $ty {
+                fn from_usize(value: usize) -> Self {
+                    value as Self
+                }
+            }
+        )*
+    };
+}
+
 non_float_types!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 non_float_typesu!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
+from_size!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
 float_types!(f32, f64);
 float_typesu!(f32, f64);
 
@@ -128,6 +141,10 @@ impl Default for Moving<usize> {
     }
 }
 
+pub trait FromUsize {
+    fn from_usize(value: usize) -> Self;
+}
+
 impl<T> Moving<T>
 where
     T: Default
@@ -137,7 +154,7 @@ where
         + std::ops::Sub<Output = T>
         + std::ops::Mul<Output = T>
         + std::cmp::PartialEq
-        + From<usize>,
+        + FromUsize,
 {
     pub fn new() -> Self {
         Self {
@@ -147,13 +164,21 @@ where
     }
 
     pub fn add(&mut self, value: T) {
-        self.current = (self.current * (T::from(self.count)) + value) / T::from(self.count + 1);
+        self.current =
+            (self.current * T::from_usize(self.count) + value) / T::from_usize(self.count + 1);
         self.count += 1;
     }
 
     pub fn sub(&mut self, value: T) {
-        self.current = (self.current * (T::from(self.count)) - value) / T::from(self.count - 1);
-        self.count -= 1;
+        if self.count > 1 {
+            self.current =
+                (self.current * T::from_usize(self.count) - value) / T::from_usize(self.count - 1);
+        } else {
+            self.current = T::default();
+        }
+        if self.count > 0 {
+            self.count -= 1;
+        }
     }
 }
 
@@ -197,5 +222,44 @@ mod tests {
         moving_average.add(20);
         moving_average.sub(10);
         assert_eq!(moving_average, 20);
+    }
+
+    #[test]
+    fn float_moving_average() {
+        let mut moving_average: Moving<f32> = Moving::new();
+        moving_average.add(10.0);
+        moving_average.add(20.0);
+        assert_eq!(moving_average, 15.0);
+    }
+
+    #[test]
+    fn float_moving_average_sub() {
+        let mut moving_average: Moving<f32> = Moving::new();
+        moving_average.add(10.0);
+        moving_average.add(20.0);
+        moving_average.sub(10.0);
+        assert_eq!(moving_average, 20.0);
+    }
+
+    #[test]
+    fn first_operation_sub() {
+        let mut moving_average: Moving<usize> = Moving::new();
+        moving_average.sub(10);
+        assert_eq!(moving_average, 0);
+    }
+
+    #[test]
+    fn first_operation_sub_float() {
+        let mut moving_average: Moving<f32> = Moving::new();
+        moving_average.sub(10.0);
+        assert_eq!(moving_average, 0.0);
+    }
+
+    #[test]
+    fn first_operation_sub_then_add() {
+        let mut moving_average: Moving<usize> = Moving::new();
+        moving_average.sub(10);
+        moving_average.add(10);
+        assert_eq!(moving_average, 10);
     }
 }
