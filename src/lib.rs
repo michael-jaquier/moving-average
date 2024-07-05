@@ -43,7 +43,15 @@ macro_rules! non_float_types {
             fn eq(&self, other: &Self) -> bool {
                 self.current == other.current
             }
+
         }
+
+        impl std::cmp::PartialOrd for Moving<$ty> {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            self.current.partial_cmp(&other.current)
+            }
+        }
+
         )*
     };
 }
@@ -52,10 +60,16 @@ macro_rules! non_float_typesu {
     ($($ty:ty),*) => {
         $(
             impl std::cmp::PartialEq<$ty> for Moving<$ty> {
-            fn eq(&self, other: &$ty) -> bool {
-                self.current == *other
+                fn eq(&self, other: &$ty) -> bool {
+                    self.current == *other
             }
         }
+
+            impl std::cmp::PartialOrd<$ty> for Moving<$ty> {
+                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
+                    self.current.partial_cmp(other)
+                }
+            }
         )*
     };
 }
@@ -68,9 +82,16 @@ macro_rules! float_types {
                         (self.current - other.current).abs() < <$ty>::EPSILON
                     }
             }
+
+            impl PartialOrd for Moving<$ty> {
+                fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                    self.current.partial_cmp(&other.current)
+                }
+            }
         )*
     };
 }
+
 macro_rules! float_typesu {
     ($($ty:ty),*) => {
         $(
@@ -79,6 +100,13 @@ macro_rules! float_typesu {
                         (self.current - *other).abs() < <$ty>::EPSILON
                     }
             }
+
+            impl std::cmp::PartialOrd<$ty> for Moving<$ty> {
+                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
+                    self.current.partial_cmp(other)
+                }
+            }
+
         )*
     };
 }
@@ -297,5 +325,21 @@ mod tests {
         assert_eq!(moving_average, 0);
         let moving_average: Moving<f32> = Default::default();
         assert_eq!(moving_average, 0.0);
+    }
+
+    #[test]
+    fn binary_operations() {
+        let mut moving_average: Moving<usize> = Moving::new();
+        moving_average.add(10);
+        moving_average.add(20);
+        assert!(moving_average < usize::MAX)
+    }
+
+    #[test]
+    fn binary_operations_float() {
+        let mut moving_average: Moving<f32> = Moving::new();
+        moving_average.add(10.0);
+        moving_average.add(20.0);
+        assert!(moving_average < f32::MAX)
     }
 }
