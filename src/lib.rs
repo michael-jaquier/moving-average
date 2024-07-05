@@ -122,16 +122,10 @@ assign_types!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64)
 float_types!(f32, f64);
 float_typesu!(f32, f64);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Moving<T> {
     current: T,
     count: usize,
-}
-
-impl Default for Moving<usize> {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 pub trait FromUsize {
@@ -288,5 +282,20 @@ mod tests {
         moving_average.add(10.0);
         moving_average += 20.0;
         assert_eq!(moving_average, 15.0);
+    }
+
+    #[test]
+    fn assign_add_i64() {
+        let mut moving_average: Moving<i64> = Moving::new();
+        moving_average.add(10);
+        moving_average += 20;
+        assert_eq!(moving_average, 15);
+    }
+    #[test]
+    fn default_works() {
+        let moving_average: Moving<usize> = Default::default();
+        assert_eq!(moving_average, 0);
+        let moving_average: Moving<f32> = Default::default();
+        assert_eq!(moving_average, 0.0);
     }
 }

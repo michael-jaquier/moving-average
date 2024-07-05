@@ -1,6 +1,6 @@
 [package]
 name = "moving-average"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 license = "MIT"
 authors = ["Michael Jaquier <michael.jaquier@nexthink.com>"]
