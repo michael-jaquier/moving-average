@@ -1,11 +1,10 @@
 //! # Moving Average Library
 //!
-//! `moving_average` is a library for calculating the moving average, mode, and other statistical operations on a stream of data.
+//! `moving_average` is a library for calculating the moving average on a stream of data.
 //!
 //! ## Features
 //!
 //! - Calculate moving average in an ergonomic way.
-//! - Optional feature to calculate the mode of the data.
 //!
 //! ## Usage
 //!
@@ -29,39 +28,12 @@
 //! ```rust
 //! use moving_average::Moving;
 //!
-//! let mut moving_average = Moving::new();
+//! let mut moving_average: Moving<usize> = Moving::new();
 //! moving_average.add(10);
 //! moving_average.add(20);
 //! assert_eq!(moving_average, 15);
 //! ```
-//!
-//! ### Mode Calculation
-//!
-//! Enable the `mode` feature in your `Cargo.toml` to use mode calculation:
-//!
-//! ```toml
-//! [dependencies.moving_average]
-//! version = "0.1.0"
-//! features = ["mode"]
-//! ```
-//!
-//! With the `mode` feature enabled, you can calculate the mode of the data:
-//!
-//! ```rust
-//! use moving_average::Moving;
-//!
-//! let mut moving_average = Moving::new();
-//! moving_average.add(10);
-//! moving_average.add(20);
-//! moving_average.add(20);
-//! moving_average.add(20);
-//! moving_average.add(30);
-//! assert_eq!(moving_average.mode, 20);
-//! ```
-//!
-//! ## Features
-//!
-//! - `mode`: Enables calculation of the mode of the data.
+
 use std::ops::{AddAssign, Deref, SubAssign};
 
 macro_rules! non_float_types {
@@ -123,9 +95,30 @@ macro_rules! from_size {
     };
 }
 
+macro_rules! assign_types {
+    ($($ty:ty),*) => {
+        $(
+            impl AddAssign<$ty> for Moving<$ty> {
+                fn add_assign(&mut self, other: $ty) {
+                    self.add(other);
+                }
+            }
+
+            impl SubAssign<$ty> for Moving<$ty> {
+                fn sub_assign(&mut self, other: $ty) {
+                    self.sub(other);
+                }
+            }
+        )*
+
+
+    };
+}
+
 non_float_types!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 non_float_typesu!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 from_size!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
+assign_types!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
 float_types!(f32, f64);
 float_typesu!(f32, f64);
 
@@ -261,5 +254,39 @@ mod tests {
         moving_average.sub(10);
         moving_average.add(10);
         assert_eq!(moving_average, 10);
+    }
+
+    #[test]
+    fn assign_add() {
+        let mut moving_average: Moving<usize> = Moving::new();
+        moving_average.add(10);
+        moving_average += 20;
+        assert_eq!(moving_average, 15);
+    }
+
+    #[test]
+    fn assign_sub() {
+        let mut moving_average: Moving<usize> = Moving::new();
+        moving_average.add(10);
+        moving_average.add(20);
+        moving_average -= 10;
+        assert_eq!(moving_average, 20);
+    }
+
+    #[test]
+    fn assign_sub_float() {
+        let mut moving_average: Moving<f32> = Moving::new();
+        moving_average.add(10.0);
+        moving_average.add(20.0);
+        moving_average -= 10.0;
+        assert_eq!(moving_average, 20.0);
+    }
+
+    #[test]
+    fn assign_add_float() {
+        let mut moving_average: Moving<f32> = Moving::new();
+        moving_average.add(10.0);
+        moving_average += 20.0;
+        assert_eq!(moving_average, 15.0);
     }
 }
