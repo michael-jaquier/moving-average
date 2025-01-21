@@ -34,44 +34,58 @@
 //! assert_eq!(moving_average, 15);
 //! ```
 
-use std::ops::{AddAssign, Deref};
+use num_traits::ToPrimitive;
+use std::{fmt::Display, ops::{AddAssign, Deref}};
 
-macro_rules! from_size {
-    ($($ty:ty),*) => {
+#[derive(Debug, Clone)]
+pub struct Value(f64);
+
+impl Deref for Value {
+    type Target = f64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+
+macro_rules! impl_partial_eq {
+    ($($ty:ty), *) => {
         $(
-            impl FromUsize for $ty {
-                fn from_usize(value: usize) -> Self {
-                    value as Self
-                }
-            }
-
-            impl ToFloat64 for $ty {
-                fn to_f64(self) -> f64 {
-                    self as f64
+            impl PartialEq<$ty> for Value {
+                fn eq(&self, other: &$ty) -> bool {
+                    self.0 == *other as f64
                 }
             }
         )*
     };
+    () => {
+        
+    };
 }
 
-macro_rules! assign_types {
+
+impl_partial_eq!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
+
+type MovingResult = Result<Value, MovingError>;
+
+macro_rules! utilities {
     ($($ty:ty),*) => {
         $(
+
             impl AddAssign<$ty> for Moving<$ty> {
                 fn add_assign(&mut self, other: $ty) {
-                    self.add(other);
+                    let _ = self.add(other);
                 }
             }
 
-        )*
 
-
-    };
-}
-
-macro_rules! partials {
-    ($($ty:ty),*) => {
-        $(
             impl PartialEq<$ty> for Moving<$ty> {
                 fn eq(&self, other: &$ty) -> bool {
                     self.mean == *other as f64
@@ -96,6 +110,7 @@ macro_rules! partials {
                 }
             }
 
+
         )*
 
     };
@@ -115,7 +130,6 @@ macro_rules! partial_non {
                 self.mean == *other
             }
         }
-
     )*
 
     };
@@ -125,8 +139,8 @@ macro_rules! signed {
     ($($ty:ty), *) => {
         $(
         impl Sign for $ty {
-            fn is_unsigned() -> bool {
-                false
+            fn signed() -> bool {
+               true
             }
         }
         )*
@@ -136,17 +150,15 @@ macro_rules! unsigned {
     ($($ty:ty), *) => {
     $(
         impl Sign for $ty {
-            fn is_unsigned() -> bool {
-                true
+            fn signed() -> bool {
+               false
             }
         }
     )*
     };
 }
 
-from_size!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
-assign_types!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
-partials!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
+utilities!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
 partial_non!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 signed!(i8, i16, i32, i64, i128, f32, f64);
 unsigned!(usize, u8, u16, u32, u64, u128);
@@ -155,37 +167,128 @@ unsigned!(usize, u8, u16, u32, u64, u128);
 pub struct Moving<T> {
     count: usize,
     mean: f64,
+    is_error: bool,
+    threshold: f64,
     phantom: std::marker::PhantomData<T>,
 }
 
-pub trait FromUsize {
-    fn from_usize(value: usize) -> Self;
-}
-
-pub trait ToFloat64 {
-    fn to_f64(self) -> f64;
-}
-
 pub trait Sign {
-    fn is_unsigned() -> bool;
+    fn signed() -> bool;
+}
+
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Represents the possible errors that can occur in the `Moving` struct.
+pub enum MovingError {
+    /// Error indicating that a negative value was attempted to be added to an unsigned type.
+    NegativeValueToUnsignedType,
+    
+    /// Error indicating that an overflow occurred during an operation.
+    /// Note: This is unlikely to occur with floating-point operations.
+    Overflow,
+    
+    /// Error indicating that an underflow occurred during an operation.
+    Underflow,
+    
+    /// Error indicating that the count of values has overflowed.
+    CountOverflow,
+    
+    /// Error indicating that a value has reached or exceeded the specified threshold.
+    ///
+    /// This error is triggered when a value added to the `Moving` instance meets or exceeds
+    /// the threshold value specified during the creation of the instance. This can be used
+    /// to signal that a certain limit has been reached, which might require special handling
+    /// or termination of further processing.
+    ThresholdReached,
 }
 
 impl<T> Moving<T>
 where
-    T: FromUsize + ToFloat64 + Sign,
+    T: Sign + ToPrimitive,
 {
+    /// Creates a new [`Moving<T>`] instance with default values.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of [`Moving<T>`].
+    /// Values can ge added to this instance to calculate the moving average.
     pub fn new() -> Self {
         Self {
             count: 0,
             mean: 0.0,
+            is_error: false,
+            threshold: f64::MAX,
             phantom: std::marker::PhantomData,
         }
     }
 
-    pub fn add(&mut self, value: T) {
-        let value = T::to_f64(value);
-        self.count += 1;
+    /// Creates a new [`Moving<T>`] instance with a specified threshold.
+    ///
+    /// This method initializes the `count` to 0, `mean` to 0.0, `is_error` to `false`,
+    /// and `threshold` to the provided value.
+    ///
+    /// # Parameters
+    ///
+    /// - `threshold`: The threshold value to be used for the new instance.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of [`Moving<T>`] with the specified threshold.
+    /// Values can be added to this instance to calculate the moving average.
+    /// When values are greater than or equal to the threshold, the [`MovingResults::ThresholdReached`] variant is returned and no further values are added.
+    pub fn new_with_threshold(threshold: f64) -> Self {
+        Self {
+            count: 0,
+            mean: 0.0,
+            is_error: false,
+            threshold,
+            phantom: std::marker::PhantomData,
+        }
+    }
+    /// Adds a value to the current statistical collection, updating the mean accordingly.
+    ///
+    /// This function converts the input value to an `f64` and then updates the mean of the collection
+    /// based on the new value.
+    /// 
+    /// # Returns
+    /// If the mean is less than the threshold, the [`MovingResults::Value`] variant is returned with the new mean.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the type `T` is unsigned and a negative value is attempted to be added. This is because
+    /// negative values are not allowed for unsigned types. If negative values are needed, it is recommended
+    /// to use signed types instead.
+    pub fn add(&mut self, value: T) -> MovingResult {
+        let value = value.to_f64().unwrap();
+
+        if self.signed() && value < 0.0 {
+            self.is_error = true;
+            return Err(MovingError::NegativeValueToUnsignedType);
+        }
+
+        let count = self
+            .count
+            .checked_add(1)
+            .ok_or(MovingError::CountOverflow)?;
+        self.count = count;
+
         self.mean += (value - self.mean) / self.count as f64;
+
+        if self.mean.is_infinite() {
+            self.is_error = true;
+            return Err(MovingError::Overflow);
+        }
+
+        if self.mean >= self.threshold {
+            return Err(MovingError::ThresholdReached);
+        }
+
+        Ok(Value(self.mean))
+
+    }
+
+    fn signed(&self) -> bool {
+        T::signed()
     }
 }
 
@@ -203,31 +306,58 @@ impl<T> std::fmt::Display for Moving<T> {
     }
 }
 
+impl std::fmt::Display for MovingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::Moving;
+
+    #[test]
+    fn thresholds() {
+        let mut moving_threshold = Moving::new_with_threshold(10.0);
+        let result = moving_threshold.add(9);
+        assert_eq!(*result.unwrap(), 9.0);
+        let result = moving_threshold.add(15);
+        assert!(result.is_err(),"{:?}", result);
+        assert_eq!(result.unwrap_err(), crate::MovingError::ThresholdReached);
+    }
+
+    #[test]
+    fn never_overflow() {
+        let mut moving_average: Moving<usize> = Moving::new();
+        let result = moving_average.add(usize::MAX);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), usize::MAX as f64);
+        let result = moving_average.add(usize::MAX);
+        assert!(result.is_ok());
+
+        assert_eq!(*result.unwrap(), usize::MAX as f64);
+    }
 
     #[test]
     fn add_moving_average() {
         let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.add(10);
+        let _ = moving_average.add(10);
         assert_eq!(moving_average, 10);
-        moving_average.add(20);
+        let _ = moving_average.add(20);
         assert_eq!(moving_average, 15);
     }
 
     #[test]
     fn float_moving_average() {
         let mut moving_average: Moving<f32> = Moving::new();
-        moving_average.add(10.0);
-        moving_average.add(20.0);
+        let _ = moving_average.add(10.0);
+        let _ = moving_average.add(20.0);
         assert_eq!(moving_average, 15.0);
     }
 
     #[test]
     fn assign_add() {
         let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.add(10);
+        let _ = moving_average.add(10);
         moving_average += 20;
         assert_eq!(moving_average, 15);
     }
@@ -235,7 +365,7 @@ mod tests {
     #[test]
     fn assign_add_float() {
         let mut moving_average: Moving<f32> = Moving::new();
-        moving_average.add(10.0);
+        let _ = moving_average.add(10.0);
         moving_average += 20.0;
         assert_eq!(moving_average, 15.0);
     }
@@ -243,7 +373,7 @@ mod tests {
     #[test]
     fn assign_add_i64() {
         let mut moving_average: Moving<i64> = Moving::new();
-        moving_average.add(10);
+        let _ = moving_average.add(10);
         moving_average += 20;
         assert_eq!(moving_average, 15);
     }
@@ -258,16 +388,16 @@ mod tests {
     #[test]
     fn binary_operations() {
         let mut moving_average: Moving<usize> = Moving::new();
-        moving_average.add(10);
-        moving_average.add(20);
+        let _ = moving_average.add(10);
+        let _ = moving_average.add(20);
         assert!(moving_average < usize::MAX)
     }
 
     #[test]
     fn binary_operations_float() {
         let mut moving_average: Moving<f32> = Moving::new();
-        moving_average.add(10.0);
-        moving_average.add(20.0);
+        let _ = moving_average.add(10.0);
+        let _ = moving_average.add(20.0);
         assert!(moving_average < f32::MAX)
     }
 
@@ -275,7 +405,7 @@ mod tests {
     fn many_operations() {
         let mut moving_average: Moving<_> = Moving::new();
         for i in 0..1000 {
-            moving_average.add(i);
+            let _ = moving_average.add(i);
         }
         assert_eq!(moving_average, 999.0 / 2.0);
     }

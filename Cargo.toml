@@ -13,3 +13,4 @@ documentation = "https://docs.rs/moving-average"
 
 
 [dependencies]
+num-traits = "0.2.19"
