@@ -35,7 +35,7 @@
 //! ```
 
 use num_traits::ToPrimitive;
-use std::{fmt::Display, ops::{AddAssign, Deref}};
+use std::{cell::RefCell, fmt::Display, marker::PhantomData, ops::{AddAssign, Deref}};
 
 #[derive(Debug, Clone)]
 pub struct Value(f64);
@@ -73,46 +73,40 @@ macro_rules! impl_partial_eq {
 
 impl_partial_eq!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
 
-type MovingResult = Result<Value, MovingError>;
 
 macro_rules! utilities {
     ($($ty:ty),*) => {
         $(
-
             impl AddAssign<$ty> for Moving<$ty> {
                 fn add_assign(&mut self, other: $ty) {
                     let _ = self.add(other);
                 }
             }
 
-
             impl PartialEq<$ty> for Moving<$ty> {
                 fn eq(&self, other: &$ty) -> bool {
-                    self.mean == *other as f64
+                    self.mean() == *other as f64
                 }
             }
 
             impl PartialOrd<$ty> for Moving<$ty> {
                 fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
-                    self.mean.partial_cmp(&(*other as f64))
+                    self.mean().partial_cmp(&(*other as f64))
                 }
             }
 
             impl PartialEq<Moving<$ty>> for $ty {
                 fn eq(&self, other: &Moving<$ty>) -> bool {
-                    *self as f64 == other.mean
+                    *self as f64 == other.mean()
                 }
             }
 
             impl PartialOrd<Moving<$ty>> for $ty {
                 fn partial_cmp(&self, other: &Moving<$ty>) -> Option<std::cmp::Ordering> {
-                    (*self as f64).partial_cmp(&other.mean)
+                    (*self as f64).partial_cmp(&other.mean())
                 }
             }
-
-
         )*
-
     };
 }
 
@@ -121,13 +115,13 @@ macro_rules! partial_non {
         $(
         impl PartialEq<f32> for Moving<$ty> {
             fn eq(&self, other: &f32) -> bool {
-                self.mean == *other as f64
+                self.mean() == *other as f64
             }
         }
 
         impl PartialEq<f64> for Moving<$ty> {
             fn eq(&self, other: &f64) -> bool {
-                self.mean == *other
+                self.mean() == *other
             }
         }
     )*
@@ -165,9 +159,8 @@ unsigned!(usize, u8, u16, u32, u64, u128);
 
 #[derive(Debug, Default)]
 pub struct Moving<T> {
-    count: usize,
-    mean: f64,
-    is_error: bool,
+    count: RefCell<usize>,
+    mean: RefCell<f64>,
     threshold: f64,
     phantom: std::marker::PhantomData<T>,
 }
@@ -212,13 +205,12 @@ where
     ///
     /// A new instance of [`Moving<T>`].
     /// Values can ge added to this instance to calculate the moving average.
-    pub fn new() -> Self {
+     pub fn new() -> Self {
         Self {
-            count: 0,
-            mean: 0.0,
-            is_error: false,
+            count: RefCell::new(0),
+            mean: RefCell::new(0.0),
             threshold: f64::MAX,
-            phantom: std::marker::PhantomData,
+            phantom: PhantomData,
         }
     }
 
@@ -238,11 +230,10 @@ where
     /// When values are greater than or equal to the threshold, the [`MovingResults::ThresholdReached`] variant is returned and no further values are added.
     pub fn new_with_threshold(threshold: f64) -> Self {
         Self {
-            count: 0,
-            mean: 0.0,
-            is_error: false,
+            count: RefCell::new(0),
+            mean: RefCell::new(0.0),
             threshold,
-            phantom: std::marker::PhantomData,
+            phantom: PhantomData,
         }
     }
     /// Adds a value to the current statistical collection, updating the mean accordingly.
@@ -258,51 +249,52 @@ where
     /// Panics if the type `T` is unsigned and a negative value is attempted to be added. This is because
     /// negative values are not allowed for unsigned types. If negative values are needed, it is recommended
     /// to use signed types instead.
-    pub fn add(&mut self, value: T) -> MovingResult {
-        let value = value.to_f64().unwrap();
-
-        if self.signed() && value < 0.0 {
-            self.is_error = true;
+    pub fn add_with_result(&self, value: T) -> Result<f64, MovingError> {
+        let value_f64 = value.to_f64().unwrap();
+        if T::signed() == false && value_f64 < 0.0 {
             return Err(MovingError::NegativeValueToUnsignedType);
         }
 
-        let count = self
-            .count
-            .checked_add(1)
-            .ok_or(MovingError::CountOverflow)?;
-        self.count = count;
+        let mut count = self.count.borrow_mut();
+        let mut mean = self.mean.borrow_mut();
 
-        self.mean += (value - self.mean) / self.count as f64;
+        *count += 1;
+        *mean += (value_f64 - *mean) / *count as f64;
 
-        if self.mean.is_infinite() {
-            self.is_error = true;
-            return Err(MovingError::Overflow);
-        }
-
-        if self.mean >= self.threshold {
+        if *mean >= self.threshold {
             return Err(MovingError::ThresholdReached);
         }
 
-        Ok(Value(self.mean))
-
+        Ok(*mean)
     }
 
-    fn signed(&self) -> bool {
-        T::signed()
+    /// Adds a value to the current statistical collection, ignoring the result.
+    ///
+    /// This method calls the `add` method and ignores any errors that occur.
+    pub fn add(&self, value: T) {
+        let _ = self.add_with_result(value);
     }
-}
 
-impl<T> Deref for Moving<T> {
-    type Target = f64;
-
-    fn deref(&self) -> &Self::Target {
-        &self.mean
+    pub fn mean(&self) -> f64 {
+        *self.mean.borrow()
     }
 }
 
 impl<T> std::fmt::Display for Moving<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.mean)
+        write!(f, "{}", self.mean.borrow())
+    }
+}
+
+impl<T> PartialEq for Moving<T> {
+    fn eq(&self, other: &Self) -> bool {
+        *self.mean.borrow() == *other.mean.borrow()
+    }
+}
+
+impl<T> PartialOrd for Moving<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.mean.borrow().partial_cmp(&*other.mean.borrow())
     }
 }
 
@@ -311,53 +303,64 @@ impl std::fmt::Display for MovingError {
         write!(f, "{:?}", self)
     }
 }
+
+
 #[cfg(test)]
 mod tests {
     use crate::Moving;
 
     #[test]
+    fn partial_order() {
+        let m1 = Moving::new();
+        let m2 = Moving::new();
+        m1.add(10);
+        m2.add(20);
+        assert!(m1 < m2);
+    }
+
+    #[test]
     fn thresholds() {
-        let mut moving_threshold = Moving::new_with_threshold(10.0);
-        let result = moving_threshold.add(9);
-        assert_eq!(*result.unwrap(), 9.0);
-        let result = moving_threshold.add(15);
+        let moving_threshold = Moving::new_with_threshold(10.0);
+        let result = moving_threshold.add_with_result(9);
+        assert_eq!(result.unwrap(), 9.0);
+        let result = moving_threshold.add_with_result(15);
         assert!(result.is_err(),"{:?}", result);
         assert_eq!(result.unwrap_err(), crate::MovingError::ThresholdReached);
     }
 
     #[test]
     fn never_overflow() {
-        let mut moving_average: Moving<usize> = Moving::new();
-        let result = moving_average.add(usize::MAX);
+        let moving_average: Moving<usize> = Moving::new();
+        let result = moving_average.add_with_result(usize::MAX);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), usize::MAX as f64);
-        let result = moving_average.add(usize::MAX);
+        let result = moving_average.add_with_result(usize::MAX);
         assert!(result.is_ok());
 
-        assert_eq!(*result.unwrap(), usize::MAX as f64);
+        assert_eq!(result.unwrap(), usize::MAX as f64);
     }
 
     #[test]
     fn add_moving_average() {
-        let mut moving_average: Moving<usize> = Moving::new();
-        let _ = moving_average.add(10);
+        let moving_average: Moving<usize> = Moving::new();
+        moving_average.add(10);
         assert_eq!(moving_average, 10);
-        let _ = moving_average.add(20);
+        moving_average.add(20);
         assert_eq!(moving_average, 15);
     }
 
     #[test]
     fn float_moving_average() {
-        let mut moving_average: Moving<f32> = Moving::new();
-        let _ = moving_average.add(10.0);
-        let _ = moving_average.add(20.0);
+        let moving_average: Moving<f32> = Moving::new();
+        moving_average.add(10.0);
+        moving_average.add(20.0);
         assert_eq!(moving_average, 15.0);
     }
 
     #[test]
     fn assign_add() {
         let mut moving_average: Moving<usize> = Moving::new();
-        let _ = moving_average.add(10);
+        moving_average.add(10);
         moving_average += 20;
         assert_eq!(moving_average, 15);
     }
@@ -387,7 +390,7 @@ mod tests {
 
     #[test]
     fn binary_operations() {
-        let mut moving_average: Moving<usize> = Moving::new();
+        let moving_average: Moving<usize> = Moving::new();
         let _ = moving_average.add(10);
         let _ = moving_average.add(20);
         assert!(moving_average < usize::MAX)
@@ -395,7 +398,7 @@ mod tests {
 
     #[test]
     fn binary_operations_float() {
-        let mut moving_average: Moving<f32> = Moving::new();
+        let moving_average: Moving<f32> = Moving::new();
         let _ = moving_average.add(10.0);
         let _ = moving_average.add(20.0);
         assert!(moving_average < f32::MAX)
@@ -403,7 +406,7 @@ mod tests {
 
     #[test]
     fn many_operations() {
-        let mut moving_average: Moving<_> = Moving::new();
+        let moving_average: Moving<_> = Moving::new();
         for i in 0..1000 {
             let _ = moving_average.add(i);
         }
