@@ -35,7 +35,12 @@
 //! ```
 
 use num_traits::ToPrimitive;
-use std::{cell::RefCell, fmt::Display, marker::PhantomData, ops::{AddAssign, Deref}};
+use std::{
+    cell::RefCell,
+    fmt::Display,
+    marker::PhantomData,
+    ops::{AddAssign, Deref},
+};
 
 #[derive(Debug, Clone)]
 pub struct Value(f64);
@@ -54,7 +59,6 @@ impl Display for Value {
     }
 }
 
-
 macro_rules! impl_partial_eq {
     ($($ty:ty), *) => {
         $(
@@ -66,13 +70,11 @@ macro_rules! impl_partial_eq {
         )*
     };
     () => {
-        
+
     };
 }
 
-
 impl_partial_eq!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64);
-
 
 macro_rules! utilities {
     ($($ty:ty),*) => {
@@ -157,35 +159,26 @@ partial_non!(usize, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 signed!(i8, i16, i32, i64, i128, f32, f64);
 unsigned!(usize, u8, u16, u32, u64, u128);
 
-#[derive(Debug, Default)]
-pub struct Moving<T> {
-    count: RefCell<usize>,
-    mean: RefCell<f64>,
-    threshold: f64,
-    phantom: std::marker::PhantomData<T>,
-}
-
 pub trait Sign {
     fn signed() -> bool;
 }
-
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 /// Represents the possible errors that can occur in the `Moving` struct.
 pub enum MovingError {
     /// Error indicating that a negative value was attempted to be added to an unsigned type.
     NegativeValueToUnsignedType,
-    
+
     /// Error indicating that an overflow occurred during an operation.
     /// Note: This is unlikely to occur with floating-point operations.
     Overflow,
-    
+
     /// Error indicating that an underflow occurred during an operation.
     Underflow,
-    
+
     /// Error indicating that the count of values has overflowed.
     CountOverflow,
-    
+
     /// Error indicating that a value has reached or exceeded the specified threshold.
     ///
     /// This error is triggered when a value added to the `Moving` instance meets or exceeds
@@ -193,6 +186,14 @@ pub enum MovingError {
     /// to signal that a certain limit has been reached, which might require special handling
     /// or termination of further processing.
     ThresholdReached,
+}
+
+#[derive(Debug, Default)]
+pub struct Moving<T> {
+    count: RefCell<usize>,
+    mean: RefCell<f64>,
+    threshold: f64,
+    phantom: std::marker::PhantomData<T>,
 }
 
 impl<T> Moving<T>
@@ -205,7 +206,7 @@ where
     ///
     /// A new instance of [`Moving<T>`].
     /// Values can ge added to this instance to calculate the moving average.
-     pub fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             count: RefCell::new(0),
             mean: RefCell::new(0.0),
@@ -240,7 +241,7 @@ where
     ///
     /// This function converts the input value to an `f64` and then updates the mean of the collection
     /// based on the new value.
-    /// 
+    ///
     /// # Returns
     /// If the mean is less than the threshold, the [`MovingResults::Value`] variant is returned with the new mean.
     ///
@@ -251,7 +252,7 @@ where
     /// to use signed types instead.
     pub fn add_with_result(&self, value: T) -> Result<f64, MovingError> {
         let value_f64 = value.to_f64().unwrap();
-        if T::signed() == false && value_f64 < 0.0 {
+        if !T::signed() && value_f64 < 0.0 {
             return Err(MovingError::NegativeValueToUnsignedType);
         }
 
@@ -275,8 +276,26 @@ where
         let _ = self.add_with_result(value);
     }
 
+    /// Returns the mean value of the moving average
     pub fn mean(&self) -> f64 {
         *self.mean.borrow()
+    }
+
+    /// Returns the count of events added
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use moving_average::Moving;
+    /// let moving = Moving::new();
+    /// moving.add(3);
+    /// assert_eq!(moving.count(), 1);
+    /// moving.add(3);
+    /// assert_eq!(moving.count(), 2);
+    /// assert_eq!(moving.mean(), 3.0);
+    /// ```
+    pub fn count(&self) -> usize {
+        *self.count.borrow()
     }
 }
 
@@ -304,7 +323,6 @@ impl std::fmt::Display for MovingError {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::Moving;
@@ -324,7 +342,7 @@ mod tests {
         let result = moving_threshold.add_with_result(9);
         assert_eq!(result.unwrap(), 9.0);
         let result = moving_threshold.add_with_result(15);
-        assert!(result.is_err(),"{:?}", result);
+        assert!(result.is_err(), "{:?}", result);
         assert_eq!(result.unwrap_err(), crate::MovingError::ThresholdReached);
     }
 
@@ -368,7 +386,7 @@ mod tests {
     #[test]
     fn assign_add_float() {
         let mut moving_average: Moving<f32> = Moving::new();
-        let _ = moving_average.add(10.0);
+        moving_average.add(10.0);
         moving_average += 20.0;
         assert_eq!(moving_average, 15.0);
     }
@@ -376,7 +394,7 @@ mod tests {
     #[test]
     fn assign_add_i64() {
         let mut moving_average: Moving<i64> = Moving::new();
-        let _ = moving_average.add(10);
+        moving_average.add(10);
         moving_average += 20;
         assert_eq!(moving_average, 15);
     }
@@ -391,16 +409,16 @@ mod tests {
     #[test]
     fn binary_operations() {
         let moving_average: Moving<usize> = Moving::new();
-        let _ = moving_average.add(10);
-        let _ = moving_average.add(20);
+        moving_average.add(10);
+        moving_average.add(20);
         assert!(moving_average < usize::MAX)
     }
 
     #[test]
     fn binary_operations_float() {
         let moving_average: Moving<f32> = Moving::new();
-        let _ = moving_average.add(10.0);
-        let _ = moving_average.add(20.0);
+        moving_average.add(10.0);
+        moving_average.add(20.0);
         assert!(moving_average < f32::MAX)
     }
 
@@ -408,7 +426,7 @@ mod tests {
     fn many_operations() {
         let moving_average: Moving<_> = Moving::new();
         for i in 0..1000 {
-            let _ = moving_average.add(i);
+            moving_average.add(i);
         }
         assert_eq!(moving_average, 999.0 / 2.0);
     }
