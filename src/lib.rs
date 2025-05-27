@@ -190,6 +190,35 @@ pub enum MovingError {
     /// or termination of further processing.
     ThresholdReached,
 }
+
+/// `Moving<T>` provides an ergonomic way to compute the moving average, mode, and count
+/// for a sequence of values of type `T`. It supports both signed and unsigned numeric types,
+/// and can enforce a threshold to stop accepting new values when the mean reaches or exceeds it.
+///
+/// Internally, it tracks:
+/// - The number of values added (`count`)
+/// - The current mean (`mean`)
+/// - The frequency of each value for mode calculation (`mode`)
+/// - An optional threshold (`threshold`)
+///
+/// # Type Parameters
+///
+/// - `T`: The numeric type of the values (e.g., `usize`, `i32`, `f64`).
+///
+/// # Examples
+///
+/// ```
+/// use moving_average::Moving;
+///
+/// let moving = Moving::new();
+/// moving.add(10);
+/// moving.add(10);
+/// moving.add(10);
+/// moving.add(20);
+/// assert_eq!(moving.mean(), 12.5);
+/// assert_eq!(moving.count(), 4);
+/// assert_eq!(moving.mode(), 10.0);
+/// ```
 #[derive(Debug, Default)]
 pub struct Moving<T> {
     count: RefCell<usize>,
