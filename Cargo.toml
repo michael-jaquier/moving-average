@@ -1,6 +1,6 @@
 [package]
 name = "moving-average"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MIT"
 authors = ["Michael Jaquier <michael.jaquier@nexthink.com>"]
@@ -14,3 +14,4 @@ documentation = "https://docs.rs/moving-average"
 
 [dependencies]
 num-traits = "0.2.19"
+ordered-float = "5.0.0"

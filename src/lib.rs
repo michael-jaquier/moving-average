@@ -37,10 +37,13 @@
 use num_traits::ToPrimitive;
 use std::{
     cell::RefCell,
+    collections::HashMap,
     fmt::Display,
     marker::PhantomData,
     ops::{AddAssign, Deref},
 };
+
+use ordered_float::OrderedFloat;
 
 #[derive(Debug, Clone)]
 pub struct Value(f64);
@@ -187,11 +190,11 @@ pub enum MovingError {
     /// or termination of further processing.
     ThresholdReached,
 }
-
 #[derive(Debug, Default)]
 pub struct Moving<T> {
     count: RefCell<usize>,
     mean: RefCell<f64>,
+    mode: RefCell<HashMap<OrderedFloat<f64>, usize>>,
     threshold: f64,
     phantom: std::marker::PhantomData<T>,
 }
@@ -210,6 +213,7 @@ where
         Self {
             count: RefCell::new(0),
             mean: RefCell::new(0.0),
+            mode: RefCell::new(HashMap::new()),
             threshold: f64::MAX,
             phantom: PhantomData,
         }
@@ -233,6 +237,7 @@ where
         Self {
             count: RefCell::new(0),
             mean: RefCell::new(0.0),
+            mode: RefCell::new(HashMap::new()),
             threshold,
             phantom: PhantomData,
         }
@@ -251,13 +256,16 @@ where
     /// negative values are not allowed for unsigned types. If negative values are needed, it is recommended
     /// to use signed types instead.
     pub fn add_with_result(&self, value: T) -> Result<f64, MovingError> {
-        let value_f64 = value.to_f64().unwrap();
+        let value_f64: f64 = value.to_f64().unwrap();
         if !T::signed() && value_f64 < 0.0 {
             return Err(MovingError::NegativeValueToUnsignedType);
         }
-
         let mut count = self.count.borrow_mut();
         let mut mean = self.mean.borrow_mut();
+        let mut mode = self.mode.borrow_mut();
+        mode.entry(OrderedFloat(value_f64))
+            .and_modify(|e| *e += 1)
+            .or_insert(1);
 
         *count += 1;
         *mean += (value_f64 - *mean) / *count as f64;
@@ -279,6 +287,74 @@ where
     /// Returns the mean value of the moving average
     pub fn mean(&self) -> f64 {
         *self.mean.borrow()
+    }
+
+    /// Returns the statistical mode of the values added so far.
+    ///
+    /// The **mode** is the value that appears most frequently in the data set.
+    ///
+    /// # Behavior
+    ///
+    /// - If **no values** have been added, returns `0.0`.
+    /// - If **all values are unique** (no repeats), returns the current mean.
+    /// - If **one value** occurs more frequently than any other, returns that value as the mode.
+    /// - If **multiple values** are tied for the highest frequency (i.e., a multi-modal distribution),
+    ///   returns the value among the tied modes that is **closest to the mean**.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use moving_average::Moving;
+    /// let moving = Moving::new();
+    /// moving.add(10);
+    /// moving.add(20);
+    /// moving.add(10);
+    /// assert_eq!(moving.mode(), 10.0); // 10 appears most frequently
+    ///
+    /// let moving = Moving::new();
+    /// moving.add(1);
+    /// moving.add(2);
+    /// moving.add(3);
+    /// assert_eq!(moving.mode(), moving.mean()); // all unique, returns mean
+    ///
+    /// let moving = Moving::new();
+    /// moving.add(10);
+    /// moving.add(20);
+    /// moving.add(10);
+    /// moving.add(20);
+    /// // Ensure the mean is lowered
+    /// moving.add(1);
+    /// // Both 10 and 20 appear twice, closest to mean is returned
+    /// let mode = moving.mode();
+    /// assert_eq!(mode, 10.0); // 10 is closer to the mean than 20
+    /// ```
+    pub fn mode(&self) -> f64 {
+        let mode_map = self.mode.borrow();
+        if mode_map.is_empty() {
+            return 0.0;
+        }
+        // Find the maximum count
+        let max_count = match mode_map.values().max() {
+            Some(&max) if max > 1 => max,
+            // If all values are unique, return the mean
+            _ => return self.mean(),
+        };
+        // Collect all values with the maximum count
+        let modes: Vec<_> = mode_map
+            .iter()
+            .filter(|&(_, &count)| count == max_count)
+            .collect();
+        // If there's a tie return the mode closest to the mean
+        if modes.len() != 1 {
+            let mean = self.mean();
+            let closest = modes
+                .iter()
+                .min_by_key(|&&(value, _)| (value.0 - mean).abs() as i64)
+                .unwrap();
+            return closest.0.into_inner();
+        }
+        // Otherwise, return the mode value
+        modes[0].0.into_inner()
     }
 
     /// Returns the count of events added
@@ -326,6 +402,39 @@ impl std::fmt::Display for MovingError {
 #[cfg(test)]
 mod tests {
     use crate::Moving;
+
+    #[test]
+    fn mode() {
+        let moving = Moving::new();
+        moving.add(10);
+        moving.add(20);
+        moving.add(10);
+        assert_eq!(moving.mode(), 10.0);
+    }
+
+    #[test]
+    fn big_mode() {
+        let moving = Moving::new();
+        for i in 0..10000 {
+            moving.add(i);
+        }
+        assert_eq!(moving.mode(), moving.mean());
+        moving.add(9999);
+        assert_eq!(moving.mode(), 9999.0);
+    }
+
+    #[test]
+    fn double_mode() {
+        let moving = Moving::new();
+        moving.add(10);
+        moving.add(20);
+        moving.add(10);
+        moving.add(20);
+        moving.add(1);
+        assert_eq!(moving.mode(), 10.0);
+        moving.add(3000);
+        assert_eq!(moving.mode(), 20.0);
+    }
 
     #[test]
     fn partial_order() {
